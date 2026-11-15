@@ -25,6 +25,9 @@ main{padding:24px;max-width:1500px;width:100%;margin:auto}.heading{display:flex;
 </head>
 <body>
 <header><div class="logo"><span>▶</span> YouTube Link Vault</div><div class="topsearch"><input id="globalSearch" placeholder="動画を検索..." aria-label="動画を検索"></div><button class="primary" id="openAdd">＋ 動画を追加</button></header>
+<button id="exportYlv">↓ .ylv書き出し</button>
+<button id="importYlv">↑ .ylv読み込み</button>
+<input id="ylvFile" type="file" accept=".ylv,application/json" hidden>
 <div class="layout">
 <aside><div class="navlabel">LIBRARY</div><nav class="nav" id="nav">
 <button class="active" data-view="all">すべての動画 <span class="count" id="allCount">0</span></button>
@@ -66,6 +69,132 @@ $('globalSearch').oninput=render;$('localSearch').oninput=render;$('folderFilter
 $('stopPlayer').onclick=()=>{$('playerFrame').innerHTML='<div class="playerplaceholder"><div style="font-size:38px;color:#ff4545">▶</div><strong>YouTube Player</strong><span>ライブラリから動画を選択</span></div>';$('nowTitle').textContent='再生する動画を選択してください';$('nowMeta').textContent='選択した動画がここで再生されます'};
 $('videoGrid').addEventListener('contextmenu',e=>e.preventDefault());
 $('nav').addEventListener('dblclick',e=>{let b=e.target.closest('[data-view="playlists"]');if(b&&db.playlists.length){let p=db.playlists[0];view='playlist';activePlaylist=p.id;render()}});
+// ===== YLV Export / Import =====
+
+function exportYlv(){
+  const data = {
+    format: "YLV",
+    version: 1,
+    exported_at: new Date().toISOString(),
+    data: db
+  };
+
+  const blob = new Blob(
+    [JSON.stringify(data, null, 2)],
+    {type:"application/json"}
+  );
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+
+  a.href = url;
+  a.download = "YLV_Backup_" +
+    new Date().toISOString().slice(0,10) + ".ylv";
+
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  URL.revokeObjectURL(url);
+}
+
+function validateYlv(obj){
+  if(!obj || typeof obj !== "object") return false;
+  if(obj.format !== "YLV" || obj.version !== 1) return false;
+
+  const d = obj.data;
+
+  if(!d || typeof d !== "object") return false;
+  if(!Array.isArray(d.videos)) return false;
+  if(!Array.isArray(d.folders)) return false;
+  if(!Array.isArray(d.playlists)) return false;
+  if(!Array.isArray(d.history)) return false;
+
+  if(!d.folders.every(f => typeof f === "string")) return false;
+
+  if(!d.videos.every(v =>
+    v && typeof v.id === "string" &&
+    typeof v.url === "string" &&
+    typeof v.title === "string" &&
+    typeof v.folder === "string" &&
+    typeof v.favorite === "boolean" &&
+    typeof v.added === "number"
+  )) return false;
+
+  if(!d.playlists.every(p =>
+    p && typeof p.id === "string" &&
+    typeof p.name === "string" &&
+    Array.isArray(p.videoIds) &&
+    p.videoIds.every(id => typeof id === "string")
+  )) return false;
+
+  if(!d.history.every(h =>
+    h && typeof h.id === "string" &&
+    typeof h.time === "number"
+  )) return false;
+
+  return true;
+}
+
+$("exportYlv").onclick = exportYlv;
+
+$("importYlv").onclick = () => {
+  $("ylvFile").click();
+};
+
+$("ylvFile").onchange = async e => {
+  const file = e.target.files[0];
+  if(!file) return;
+
+  try {
+    const text = await file.text();
+    const imported = JSON.parse(text);
+
+    if(!validateYlv(imported)){
+      alert("このファイルは有効なYLV v1ファイルではありません。");
+      return;
+    }
+
+    const newDb = imported.data;
+
+    if(!confirm(
+      "現在のライブラリを完全に置き換えます。\n\n" +
+      "動画：" + newDb.videos.length + "本\n" +
+      "フォルダ：" + newDb.folders.length + "個\n" +
+      "プレイリスト：" + newDb.playlists.length + "個\n" +
+      "履歴：" + newDb.history.length + "件\n\n" +
+      "この操作は元に戻せません。\n本当に読み込みますか？"
+    )){
+      return;
+    }
+
+    // 保存に成功してからメモリ上のデータを変更
+    localStorage.setItem(KEY, JSON.stringify(newDb));
+    db = newDb;
+
+    view = "all";
+    folderView = "";
+    activePlaylist = "";
+
+    $("playerFrame").innerHTML =
+      '<div class="playerplaceholder">' +
+      '<div style="font-size:38px;color:#ff4545">▶</div>' +
+      '<strong>YouTube Player</strong>' +
+      '<span>ライブラリから動画を選択</span></div>';
+
+    $("nowTitle").textContent = "再生する動画を選択してください";
+    $("nowMeta").textContent = "選択した動画がここで再生されます";
+
+    render();
+
+    alert("YLVの読み込みが完了しました！");
+
+  } catch(err) {
+    alert("読み込みに失敗しました。\nファイルが破損している可能性があります。");
+  } finally {
+    e.target.value = "";
+  }
+};
 render();
 </script>
 </body></html>
